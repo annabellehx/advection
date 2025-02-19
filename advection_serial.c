@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <math.h>
 #include <omp.h>
-#include "mpi.h"
 
 double **initialize_matrix(int N)
 {

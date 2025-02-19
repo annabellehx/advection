@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <math.h>
-#include <omp.h>
 #include "mpi.h"
 
 void get_dimensions(int N, int rank, int size, int *start_row, int *end_row, int *start_col, int *end_col)
