@@ -50,21 +50,30 @@ void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int
     int right_neighbor = (rank % grid_dim_y < grid_dim_y - 1) ? rank + 1 : rank - grid_dim_y + 1;
 
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
-#endif
+#pragma omp parallel num_threads(NCORES)
     {
+#endif
+
+#ifdef USE_OMP
+#pragma omp parallel for
+#endif
         for (int i = 0; i < local_cols; ++i)
         {
             send_up[i] = matrix[1][i + 1];
             send_down[i] = matrix[local_rows][i + 1];
         }
 
+#ifdef USE_OMP
+#pragma omp parallel for
+#endif
         for (int i = 0; i < local_rows; ++i)
         {
             send_left[i] = matrix[i + 1][1];
             send_right[i] = matrix[i + 1][local_cols];
         }
+#ifdef USE_OMP
     }
+#endif
 
     MPI_Request send_up_request, send_down_request, send_left_request, send_right_request;
     MPI_Request recv_up_request, recv_down_request, recv_left_request, recv_right_request;
@@ -90,21 +99,30 @@ void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int
     MPI_Wait(&recv_right_request, MPI_STATUS_IGNORE);
 
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
-#endif
+#pragma omp parallel num_threads(NCORES)
     {
+#endif
+
+#ifdef USE_OMP
+#pragma omp parallel for
+#endif
         for (int i = 0; i < local_rows; ++i)
         {
             matrix[i + 1][0] = recv_left[i];
             matrix[i + 1][local_cols + 1] = recv_right[i];
         }
 
+#ifdef USE_OMP
+#pragma omp parallel for
+#endif
         for (int i = 0; i < local_cols; ++i)
         {
             matrix[0][i + 1] = recv_up[i];
             matrix[local_rows + 1][i + 1] = recv_down[i];
         }
+#ifdef USE_OMP
     }
+#endif
 }
 
 void lax_method(double **C, double **C_next, double dt, double dx, double u, double v, int i, int j)

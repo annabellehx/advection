@@ -3,12 +3,12 @@
 #include <math.h>
 #include <omp.h>
 
-double **initialize_matrix(int N, int NCORES)
+double **initialize_matrix(int N, int NTHREADS)
 {
     double **matrix = malloc((N + 2) * sizeof(double *));
 
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
+#pragma omp parallel for num_threads(NTHREADS)
 #endif
     for (int i = 0; i < N + 2; ++i)
         matrix[i] = malloc((N + 2) * sizeof(double));
@@ -21,10 +21,10 @@ double **initialize_matrix(int N, int NCORES)
     return matrix;
 }
 
-void update_ghost_cells(double **matrix, int N, int NCORES)
+void update_ghost_cells(double **matrix, int N, int NTHREADS)
 {
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
+#pragma omp parallel for num_threads(NTHREADS)
 #endif
     for (int i = 0; i < N; ++i)
     {
@@ -41,10 +41,10 @@ void lax_method(double **C, double **C_next, double dt, double dx, double u, dou
     C_next[i][j] -= dt / (2 * dx) * (u * (C[i + 1][j] - C[i - 1][j]) + v * (C[i][j + 1] - C[i][j - 1]));
 }
 
-void free_matrix(double **matrix, int N, int NCORES)
+void free_matrix(double **matrix, int N, int NTHREADS)
 {
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
+#pragma omp parallel for num_threads(NTHREADS)
 #endif
     for (int i = 0; i < N + 2; ++i)
         free(matrix[i]);
@@ -61,7 +61,7 @@ void print_matrix(FILE *file, double **matrix, int N)
     fprintf(file, "\n");
 }
 
-int advection(int N, double L, double T, int NCORES)
+int advection(int N, double L, double T, int NTHREADS)
 {
     double dx = L / (N - 1);
     double dt = 0.000125;
@@ -69,13 +69,13 @@ int advection(int N, double L, double T, int NCORES)
 
     double *u = malloc(N * sizeof(double));
     double *v = malloc(N * sizeof(double));
-    double **C_curr = initialize_matrix(N, NCORES);
-    double **C_next = initialize_matrix(N, NCORES);
+    double **C_curr = initialize_matrix(N, NTHREADS);
+    double **C_next = initialize_matrix(N, NTHREADS);
 
     // FILE *file = fopen("matrix.txt", "w");
 
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
+#pragma omp parallel for num_threads(NTHREADS)
 #endif
     for (int i = 0; i < N; ++i)
     {
@@ -90,7 +90,7 @@ int advection(int N, double L, double T, int NCORES)
         }
     }
 
-    update_ghost_cells(C_curr, N, NCORES);
+    update_ghost_cells(C_curr, N, NTHREADS);
     // print_matrix(file, C_curr, N);
 
     double start = omp_get_wtime();
@@ -98,13 +98,13 @@ int advection(int N, double L, double T, int NCORES)
     for (int n = 0; n < NT; ++n)
     {
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
+#pragma omp parallel for num_threads(NTHREADS)
 #endif
         for (int i = 0; i < N; ++i)
             for (int j = 0; j < N; ++j)
                 lax_method(C_curr, C_next, dt, dx, u[j], v[i], i + 1, j + 1);
 
-        update_ghost_cells(C_next, N, NCORES);
+        update_ghost_cells(C_next, N, NTHREADS);
         double **temp = C_curr;
         C_curr = C_next;
         C_next = temp;
@@ -116,8 +116,8 @@ int advection(int N, double L, double T, int NCORES)
     double stop = omp_get_wtime();
     // fclose(file);
 
-    free_matrix(C_curr, N, NCORES);
-    free_matrix(C_next, N, NCORES);
+    free_matrix(C_curr, N, NTHREADS);
+    free_matrix(C_next, N, NTHREADS);
     free(u);
     free(v);
 
@@ -131,19 +131,19 @@ int main(int argc, char *argv[])
 {
     if (argc != 5)
     {
-        fprintf(stderr, "Usage: %s <N> <L> <T> <NCORES> \n", argv[0]);
+        fprintf(stderr, "Usage: %s <N> <L> <T> <NTHREADS> \n", argv[0]);
         return EXIT_FAILURE;
     }
 
     int N = atoi(argv[1]);
     double L = atof(argv[2]);
     double T = atof(argv[3]);
-    int NCORES = atoi(argv[4]);
+    int NTHREADS = atoi(argv[4]);
 
     printf("N = %d   L = %lf   T = %lf \n", N, L, T);
     printf("Approximate Amount of Memory Required :\t%lu bytes \n", 2 * (N + 2) * (N + 2) * sizeof(double));
-    printf("Number of Cores for Parallelizing :\t%d cores \n\n", NCORES);
+    printf("Number of Cores for Parallelizing :\t%d cores \n\n", NTHREADS);
 
-    advection(N, L, T, NCORES);
+    advection(N, L, T, NTHREADS);
     return EXIT_SUCCESS;
 }
