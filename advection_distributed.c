@@ -19,12 +19,12 @@ void get_dimensions(int N, int rank, int size, int *start_row, int *end_row, int
     *end_col = (col_index < grid_dim_y - 1) ? *start_col + block_cols - 1 : N - 1;
 }
 
-double **initialize_matrix(int local_rows, int local_cols, int NCORES)
+double **initialize_matrix(int local_rows, int local_cols, int NTHREADS)
 {
     double **matrix = malloc((local_rows + 2) * sizeof(double *));
 
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
+#pragma omp parallel for num_threads(NTHREADS)
 #endif
     for (int i = 0; i < local_rows + 2; ++i)
         matrix[i] = malloc((local_cols + 2) * sizeof(double));
@@ -37,7 +37,7 @@ double **initialize_matrix(int local_rows, int local_cols, int NCORES)
     return matrix;
 }
 
-void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int local_cols, int NCORES,
+void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int local_cols, int NTHREADS,
                         double *send_up, double *send_down, double *send_left, double *send_right,
                         double *recv_up, double *recv_down, double *recv_left, double *recv_right)
 {
@@ -50,7 +50,7 @@ void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int
     int right_neighbor = (rank % grid_dim_y < grid_dim_y - 1) ? rank + 1 : rank - grid_dim_y + 1;
 
 #ifdef USE_OMP
-#pragma omp parallel num_threads(NCORES)
+#pragma omp parallel num_threads(NTHREADS)
     {
 #endif
 
@@ -99,7 +99,7 @@ void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int
     MPI_Wait(&recv_right_request, MPI_STATUS_IGNORE);
 
 #ifdef USE_OMP
-#pragma omp parallel num_threads(NCORES)
+#pragma omp parallel num_threads(NTHREADS)
     {
 #endif
 
@@ -131,10 +131,10 @@ void lax_method(double **C, double **C_next, double dt, double dx, double u, dou
     C_next[i][j] -= dt / (2 * dx) * (u * (C[i + 1][j] - C[i - 1][j]) + v * (C[i][j + 1] - C[i][j - 1]));
 }
 
-void free_matrix(double **matrix, int local_rows, int NCORES)
+void free_matrix(double **matrix, int local_rows, int NTHREADS)
 {
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
+#pragma omp parallel for num_threads(NTHREADS)
 #endif
     for (int i = 0; i < local_rows + 2; ++i)
         free(matrix[i]);
@@ -176,7 +176,7 @@ void print_matrix(FILE *file, double **local_matrix, int rank, int size, int N, 
     }
 }
 
-int advection(int N, double L, double T, int rank, int size, int NCORES)
+int advection(int N, double L, double T, int rank, int size, int NTHREADS)
 {
     double dx = L / (N - 1);
     double dt = 0.000125;
@@ -200,13 +200,13 @@ int advection(int N, double L, double T, int rank, int size, int NCORES)
     double *recv_left = malloc(local_rows * sizeof(double));
     double *recv_right = malloc(local_rows * sizeof(double));
 
-    double **C_curr = initialize_matrix(local_rows, local_cols, NCORES);
-    double **C_next = initialize_matrix(local_rows, local_cols, NCORES);
+    double **C_curr = initialize_matrix(local_rows, local_cols, NTHREADS);
+    double **C_next = initialize_matrix(local_rows, local_cols, NTHREADS);
 
     // FILE *file = fopen("matrix.txt", "w");
 
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
+#pragma omp parallel for num_threads(NTHREADS)
 #endif
     for (int i = 0; i < local_rows; ++i)
     {
@@ -221,7 +221,7 @@ int advection(int N, double L, double T, int rank, int size, int NCORES)
         }
     }
 
-    update_ghost_cells(C_curr, rank, size, local_rows, local_cols, NCORES, send_up, send_down, send_left, send_right, recv_up, recv_down, recv_left, recv_right);
+    update_ghost_cells(C_curr, rank, size, local_rows, local_cols, NTHREADS, send_up, send_down, send_left, send_right, recv_up, recv_down, recv_left, recv_right);
 
     // print_matrix(file, C_curr, rank, size, N, local_rows, local_cols);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -230,13 +230,13 @@ int advection(int N, double L, double T, int rank, int size, int NCORES)
     for (int n = 0; n < NT; ++n)
     {
 #ifdef USE_OMP
-#pragma omp parallel for num_threads(NCORES)
+#pragma omp parallel for num_threads(NTHREADS)
 #endif
         for (int i = 0; i < local_rows; ++i)
             for (int j = 0; j < local_cols; ++j)
                 lax_method(C_curr, C_next, dt, dx, u[j], v[i], i + 1, j + 1);
 
-        update_ghost_cells(C_next, rank, size, local_rows, local_cols, NCORES, send_up, send_down, send_left, send_right, recv_up, recv_down, recv_left, recv_right);
+        update_ghost_cells(C_next, rank, size, local_rows, local_cols, NTHREADS, send_up, send_down, send_left, send_right, recv_up, recv_down, recv_left, recv_right);
 
         double **temp = C_curr;
         C_curr = C_next;
@@ -250,8 +250,8 @@ int advection(int N, double L, double T, int rank, int size, int NCORES)
     double stop = MPI_Wtime();
     // fclose(file);
 
-    free_matrix(C_curr, local_rows, NCORES);
-    free_matrix(C_next, local_rows, NCORES);
+    free_matrix(C_curr, local_rows, NTHREADS);
+    free_matrix(C_next, local_rows, NTHREADS);
     free(u);
     free(v);
 
@@ -278,7 +278,7 @@ int main(int argc, char *argv[])
 {
     if (argc != 5)
     {
-        fprintf(stderr, "Usage: %s <N> <L> <T> <NCORES> \n", argv[0]);
+        fprintf(stderr, "Usage: %s <N> <L> <T> <NTHREADS> \n", argv[0]);
         return EXIT_FAILURE;
     }
 
@@ -290,17 +290,17 @@ int main(int argc, char *argv[])
     int N = atoi(argv[1]);
     double L = atof(argv[2]);
     double T = atof(argv[3]);
-    int NCORES = atoi(argv[4]);
+    int NTHREADS = atoi(argv[4]);
 
     if (rank == 0)
     {
         printf("N = %d   L = %lf   T = %lf \n", N, L, T);
         printf("Approximate Amount of Memory Required :\t%lu bytes \n", 2 * size * (N / (int)sqrt(size) + 2) * (N / (int)sqrt(size) + 2) * sizeof(double));
         printf("Number of Nodes Used :\t\t\t%d nodes \n", size);
-        printf("Number of Cores for Parallelizing :\t%d cores \n\n", NCORES);
+        printf("Number of Cores for Parallelizing :\t%d cores \n\n", NTHREADS);
     }
 
-    advection(N, L, T, rank, size, NCORES);
+    advection(N, L, T, rank, size, NTHREADS);
 
     MPI_Finalize();
     return EXIT_SUCCESS;
