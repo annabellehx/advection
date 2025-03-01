@@ -51,9 +51,8 @@ void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int
 
 #ifdef USE_OMP
 #pragma omp parallel num_threads(NTHREADS)
-    {
 #endif
-
+    {
 #ifdef USE_OMP
 #pragma omp parallel for
 #endif
@@ -71,9 +70,7 @@ void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int
             send_left[i] = matrix[i + 1][1];
             send_right[i] = matrix[i + 1][local_cols];
         }
-#ifdef USE_OMP
     }
-#endif
 
     MPI_Request send_up_request, send_down_request, send_left_request, send_right_request;
     MPI_Request recv_up_request, recv_down_request, recv_left_request, recv_right_request;
