@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <omp.h>
 #include "mpi.h"
 
 void get_dimensions(int N, int rank, int size, int *start_row, int *end_row, int *start_col, int *end_col)
@@ -18,10 +19,13 @@ void get_dimensions(int N, int rank, int size, int *start_row, int *end_row, int
     *end_col = (col_index < grid_dim_y - 1) ? *start_col + block_cols - 1 : N - 1;
 }
 
-double **initialize_matrix(int local_rows, int local_cols)
+double **initialize_matrix(int local_rows, int local_cols, int NCORES)
 {
     double **matrix = malloc((local_rows + 2) * sizeof(double *));
 
+#ifdef USE_OMP
+#pragma omp parallel for num_threads(NCORES)
+#endif
     for (int i = 0; i < local_rows + 2; ++i)
         matrix[i] = malloc((local_cols + 2) * sizeof(double));
 
@@ -33,7 +37,7 @@ double **initialize_matrix(int local_rows, int local_cols)
     return matrix;
 }
 
-void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int local_cols,
+void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int local_cols, int NCORES,
                         double *send_up, double *send_down, double *send_left, double *send_right,
                         double *recv_up, double *recv_down, double *recv_left, double *recv_right)
 {
@@ -45,16 +49,21 @@ void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int
     int left_neighbor = (rank % grid_dim_y > 0) ? rank - 1 : rank + grid_dim_y - 1;
     int right_neighbor = (rank % grid_dim_y < grid_dim_y - 1) ? rank + 1 : rank - grid_dim_y + 1;
 
-    for (int i = 0; i < local_cols; ++i)
+#ifdef USE_OMP
+#pragma omp parallel for num_threads(NCORES)
+#endif
     {
-        send_up[i] = matrix[1][i + 1];
-        send_down[i] = matrix[local_rows][i + 1];
-    }
+        for (int i = 0; i < local_cols; ++i)
+        {
+            send_up[i] = matrix[1][i + 1];
+            send_down[i] = matrix[local_rows][i + 1];
+        }
 
-    for (int i = 0; i < local_rows; ++i)
-    {
-        send_left[i] = matrix[i + 1][1];
-        send_right[i] = matrix[i + 1][local_cols];
+        for (int i = 0; i < local_rows; ++i)
+        {
+            send_left[i] = matrix[i + 1][1];
+            send_right[i] = matrix[i + 1][local_cols];
+        }
     }
 
     MPI_Request send_up_request, send_down_request, send_left_request, send_right_request;
@@ -80,16 +89,21 @@ void update_ghost_cells(double **matrix, int rank, int size, int local_rows, int
     MPI_Wait(&recv_left_request, MPI_STATUS_IGNORE);
     MPI_Wait(&recv_right_request, MPI_STATUS_IGNORE);
 
-    for (int i = 0; i < local_rows; ++i)
+#ifdef USE_OMP
+#pragma omp parallel for num_threads(NCORES)
+#endif
     {
-        matrix[i + 1][0] = recv_left[i];
-        matrix[i + 1][local_cols + 1] = recv_right[i];
-    }
+        for (int i = 0; i < local_rows; ++i)
+        {
+            matrix[i + 1][0] = recv_left[i];
+            matrix[i + 1][local_cols + 1] = recv_right[i];
+        }
 
-    for (int i = 0; i < local_cols; ++i)
-    {
-        matrix[0][i + 1] = recv_up[i];
-        matrix[local_rows + 1][i + 1] = recv_down[i];
+        for (int i = 0; i < local_cols; ++i)
+        {
+            matrix[0][i + 1] = recv_up[i];
+            matrix[local_rows + 1][i + 1] = recv_down[i];
+        }
     }
 }
 
@@ -99,8 +113,11 @@ void lax_method(double **C, double **C_next, double dt, double dx, double u, dou
     C_next[i][j] -= dt / (2 * dx) * (u * (C[i + 1][j] - C[i - 1][j]) + v * (C[i][j + 1] - C[i][j - 1]));
 }
 
-void free_matrix(double **matrix, int local_rows)
+void free_matrix(double **matrix, int local_rows, int NCORES)
 {
+#ifdef USE_OMP
+#pragma omp parallel for num_threads(NCORES)
+#endif
     for (int i = 0; i < local_rows + 2; ++i)
         free(matrix[i]);
 
@@ -141,7 +158,7 @@ void print_matrix(FILE *file, double **local_matrix, int rank, int size, int N, 
     }
 }
 
-int advection(int N, double L, double T, int rank, int size)
+int advection(int N, double L, double T, int rank, int size, int NCORES)
 {
     double dx = L / (N - 1);
     double dt = 0.000125;
@@ -165,11 +182,14 @@ int advection(int N, double L, double T, int rank, int size)
     double *recv_left = malloc(local_rows * sizeof(double));
     double *recv_right = malloc(local_rows * sizeof(double));
 
-    double **C_curr = initialize_matrix(local_rows, local_cols);
-    double **C_next = initialize_matrix(local_rows, local_cols);
+    double **C_curr = initialize_matrix(local_rows, local_cols, NCORES);
+    double **C_next = initialize_matrix(local_rows, local_cols, NCORES);
 
     // FILE *file = fopen("matrix.txt", "w");
 
+#ifdef USE_OMP
+#pragma omp parallel for num_threads(NCORES)
+#endif
     for (int i = 0; i < local_rows; ++i)
     {
         double x = -L / 2 + (start_row + i) * dx;
@@ -183,8 +203,7 @@ int advection(int N, double L, double T, int rank, int size)
         }
     }
 
-    update_ghost_cells(C_curr, rank, size, local_rows, local_cols, send_up, send_down,
-                       send_left, send_right, recv_up, recv_down, recv_left, recv_right);
+    update_ghost_cells(C_curr, rank, size, local_rows, local_cols, NCORES, send_up, send_down, send_left, send_right, recv_up, recv_down, recv_left, recv_right);
 
     // print_matrix(file, C_curr, rank, size, N, local_rows, local_cols);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -192,12 +211,14 @@ int advection(int N, double L, double T, int rank, int size)
 
     for (int n = 0; n < NT; ++n)
     {
+#ifdef USE_OMP
+#pragma omp parallel for num_threads(NCORES)
+#endif
         for (int i = 0; i < local_rows; ++i)
             for (int j = 0; j < local_cols; ++j)
                 lax_method(C_curr, C_next, dt, dx, u[j], v[i], i + 1, j + 1);
 
-        update_ghost_cells(C_next, rank, size, local_rows, local_cols, send_up, send_down,
-                           send_left, send_right, recv_up, recv_down, recv_left, recv_right);
+        update_ghost_cells(C_next, rank, size, local_rows, local_cols, NCORES, send_up, send_down, send_left, send_right, recv_up, recv_down, recv_left, recv_right);
 
         double **temp = C_curr;
         C_curr = C_next;
@@ -211,8 +232,8 @@ int advection(int N, double L, double T, int rank, int size)
     double stop = MPI_Wtime();
     // fclose(file);
 
-    free_matrix(C_curr, local_rows);
-    free_matrix(C_next, local_rows);
+    free_matrix(C_curr, local_rows, NCORES);
+    free_matrix(C_next, local_rows, NCORES);
     free(u);
     free(v);
 
@@ -237,9 +258,9 @@ int advection(int N, double L, double T, int rank, int size)
 
 int main(int argc, char *argv[])
 {
-    if (argc != 4)
+    if (argc != 5)
     {
-        fprintf(stderr, "Usage: %s <N> <L> <T> \n", argv[0]);
+        fprintf(stderr, "Usage: %s <N> <L> <T> <NCORES> \n", argv[0]);
         return EXIT_FAILURE;
     }
 
@@ -251,16 +272,17 @@ int main(int argc, char *argv[])
     int N = atoi(argv[1]);
     double L = atof(argv[2]);
     double T = atof(argv[3]);
+    int NCORES = atoi(argv[4]);
 
     if (rank == 0)
     {
-        printf("DISTRIBUTED MEMORY PARALLEL LAX \n\n");
         printf("N = %d   L = %lf   T = %lf \n", N, L, T);
         printf("Approximate Amount of Memory Required :\t%lu bytes \n", 2 * size * (N / (int)sqrt(size) + 2) * (N / (int)sqrt(size) + 2) * sizeof(double));
-        printf("Number of Nodes Used :\t\t\t%d nodes \n\n", size);
+        printf("Number of Nodes Used :\t\t\t%d nodes \n", size);
+        printf("Number of Cores for Parallelizing :\t%d cores \n\n", NCORES);
     }
 
-    advection(N, L, T, rank, size);
+    advection(N, L, T, rank, size, NCORES);
 
     MPI_Finalize();
     return EXIT_SUCCESS;
