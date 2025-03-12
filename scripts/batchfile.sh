@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=nn              # Job name
-#SBATCH --nodes=9                        # Request 1 node
+#SBATCH --job-name=advection              # Job name
+#SBATCH --nodes=16                        # Request 1 node
 #SBATCH --ntasks-per-node=1               # Request 1 task (job step)
 #SBATCH --cpus-per-task=16                # Number of cores per processor
 # #SBATCH --exclusive                     # Exclusive access to the node
