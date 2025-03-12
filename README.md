@@ -1,4 +1,4 @@
-# Project 1
+# Advection with Lax Solver
 
 Name: Annabelle Huang
 

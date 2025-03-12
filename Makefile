@@ -1,5 +1,5 @@
 CC = mpicc
-CFLAGS = -fopenmp -lm -O3
+CFLAGS = -lm -fopenmp -O3
 
 advection:
 	${CC} advection_shared.c -o advection_serial ${CFLAGS}
